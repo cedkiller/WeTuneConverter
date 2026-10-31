@@ -40,6 +40,21 @@ const __dirname = path.dirname(__filename);
 const DIST_DIR = path.join(__dirname, 'dist');
 const PORT = parseInt(process.env.PORT, 10) || 10000;
 
+// ---------------------------------------------------------------------------
+// Write YouTube cookies to disk at startup (if provided via environment var)
+// To use: set the Render env var YT_COOKIES to the full Netscape cookie file
+// contents (exported from browser via "Get cookies.txt LOCALLY" extension).
+// ---------------------------------------------------------------------------
+const COOKIES_PATH = '/tmp/yt-cookies.txt';
+if (process.env.YT_COOKIES) {
+  try {
+    fs.writeFileSync(COOKIES_PATH, process.env.YT_COOKIES, 'utf8');
+    console.log('YouTube cookies written to', COOKIES_PATH);
+  } catch (e) {
+    console.warn('Failed to write cookies file:', e.message);
+  }
+}
+
 const MIME_TYPES = {
   '.html': 'text/html; charset=UTF-8',
   '.js': 'text/javascript; charset=UTF-8',
@@ -61,6 +76,24 @@ const MIME_TYPES = {
   '.woff2': 'font/woff2',
   '.ttf': 'font/ttf'
 };
+
+// Build the yt-dlp argument list. If a cookies file exists, include it.
+function buildYtdlpArgs(targetUrl) {
+  const args = [
+    '-o', '-',
+    '-f', 'ba/b',
+    '--no-warnings',
+    '--no-playlist',
+    '--extractor-args', 'youtube:player_client=android,web_embedded',
+  ];
+
+  if (fs.existsSync(COOKIES_PATH)) {
+    args.push('--cookies', COOKIES_PATH);
+  }
+
+  args.push(targetUrl);
+  return args;
+}
 
 const server = http.createServer(async (req, res) => {
   // Handle CORS preflight
@@ -84,8 +117,8 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ error: 'Missing url parameter' }));
     }
 
-    // Both progress_url and download_url are provided so the client does not
-    // execute fallback to external third-party sites that trigger CORS errors.
+    // Return both progress_url and download_url so the client skips the
+    // loader.to fallback that triggers CORS errors from Render's datacenter IP.
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*'
@@ -130,14 +163,8 @@ const server = http.createServer(async (req, res) => {
 
       // If it's a YouTube URL, extract audio directly with yt-dlp
       if (targetUrl.includes('youtube.com') || targetUrl.includes('youtu.be')) {
-        const ytdlProc = spawn('yt-dlp', [
-          '-o', '-',
-          '-f', 'ba/b',
-          '--no-warnings',
-          '--no-playlist',
-          '--force-ipv4',
-          targetUrl
-        ], {
+        const ytdlArgs = buildYtdlpArgs(targetUrl);
+        const ytdlProc = spawn('yt-dlp', ytdlArgs, {
           env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin' }
         });
 
