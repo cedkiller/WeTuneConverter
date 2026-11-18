@@ -1,0 +1,2 @@
+# Netscape HTTP Cookie File
+# Optional: Paste fresh YouTube cookies here, or add YT_COOKIES to Render environment variables.
